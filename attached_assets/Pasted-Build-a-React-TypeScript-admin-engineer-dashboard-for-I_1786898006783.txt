@@ -1,0 +1,73 @@
+Build a React + TypeScript admin/engineer dashboard for "InteriorHub" that connects to an existing ASP.NET Core backend with OpenIddict OAuth2 authentication.
+
+## Authentication
+- Login page (single login form, no separate admin/engineer login) that POSTs to:
+  POST {API_BASE_URL}/connect/token
+  Content-Type: application/x-www-form-urlencoded
+  Body: grant_type=password&username={email}&password={password}&scope=offline_access
+- On success, store access_token and refresh_token securely (in memory + httpOnly-style handling, avoid plain localStorage if possible; if using localStorage, implement auto-refresh).
+- Decode the JWT access_token to extract the role claim (claim key: "role") and engineer ID (claim key: "EngineerId"). Route the user based on role: "Admin" or "Engineer".
+- Implement automatic token refresh: when a request gets 401, POST to /connect/token with grant_type=refresh_token&refresh_token={token}, retry the original request once.
+- Add a logout button that calls POST /connect/revoke with the refresh_token, then clears local state and redirects to login.
+
+## Role-based navigation
+After login, show a sidebar/nav filtered by role:
+- Admin sees: Categories, Engineers, Projects, Dashboard overview
+- Engineer sees: My Profile, My Projects, Contact Requests
+
+## Admin screens (role = Admin), calling these endpoints (all require Authorization: Bearer {access_token}):
+
+### Categories
+- GET /api/admin/categories -> list, table with name, slug, image
+- POST /api/admin/categories -> create form (name, slug, optional image upload via a separate call)
+- PUT /api/admin/categories/{id} -> edit form
+- DELETE /api/admin/categories/{id} -> delete with confirmation
+- POST /api/admin/categories/{id}/image (multipart/form-data, field name "file") -> image upload button per category, shown after category is created/on edit
+
+### Engineers (approval workflow)
+- GET /api/admin/engineers?status={Pending|Active|Disabled}&pageNumber=&pageSize= -> paginated table with filter tabs for status
+- PUT /api/admin/engineers/{id}/approve -> approve button (only visible for Pending)
+- PUT /api/admin/engineers/{id}/reject -> reject button (only visible for Pending)
+- PUT /api/admin/engineers/{id}/disable -> disable button (only visible for Active)
+- PUT /api/admin/engineers/{id}/enable -> enable button (only visible for Disabled)
+- POST /api/admin/engineers/{id}/profile-image (multipart/form-data, field "file") -> optional image upload in engineer detail view
+
+### Projects
+- GET /api/admin/projects?pageNumber=&pageSize= -> paginated table showing title, categoryName, engineerName, status, createdAt
+- DELETE /api/admin/projects/{id} -> delete with confirmation
+
+## Engineer screens (role = Engineer), same Bearer auth:
+
+- PUT /api/admin/engineers/{id}/trial
+  Body: { isTrialActive: bool, trialEndsAt: string (ISO date) }
+  Small form/modal in engineer detail view (Admin only) to toggle trial status and set end date.
+
+### My Profile
+(Remove any mention of isTrialActive/trialEndsAt — engineers can no longer edit these themselves)
+- GET /api/me/profile -> display form pre-filled with fullName, bio, specialization, city, phoneNumber, email, profileImageUrl
+- PUT /api/me/profile -> save edits (body: fullName, bio, specialization, profileImageUrl, city, phoneNumber, email, isTrialActive, trialEndsAt — only send editable fields, don't let the engineer edit isTrialActive/trialEndsAt if those are admin-managed, check with me if unsure)
+- POST /api/me/profile-image (multipart/form-data, field "file") -> profile picture upload button
+
+### My Projects
+- GET /api/me/projects?pageNumber=&pageSize= -> paginated list/grid of the engineer's own projects
+- GET /api/me/projects/{id} -> project detail view
+- POST /api/me/projects -> create form (title, description, categoryId — fetch categories from GET /api/categories for a dropdown, optional imageUrl)
+- PUT /api/me/projects/{id} -> edit form
+- DELETE /api/me/projects/{id} -> delete with confirmation
+
+### Project Images (within project detail view)
+- GET /api/me/projects/{id}/images -> gallery of current images with drag-reorder or up/down controls
+- POST /api/me/projects/{projectId}/images (multipart/form-data, fields: "file", optional "displayOrder") -> upload new image
+- PUT /api/me/projects/{id}/images/{imageId}/order?displayOrder={n} -> reorder
+- DELETE /api/me/projects/{id}/images/{imageId} -> remove image
+
+### Contact Requests
+- GET /api/me/contact-requests?pageNumber=&pageSize= -> paginated list showing customerName, customerEmail, customerPhone, message, createdAt, isRead
+
+## Design
+Clean, modern dashboard aesthetic (sidebar nav, top bar with user info + logout, data tables with pagination, modals or slide-over panels for create/edit forms). Use a component library like shadcn/ui. Responsive but desktop-first since this is an admin tool.
+
+## Environment
+Read API_BASE_URL from an environment variable (e.g. VITE_API_BASE_URL), default to https://localhost:7268 for local dev.
+
+Do not build the public-facing marketing site (that's a separate project) — this is purely the authenticated dashboard.
